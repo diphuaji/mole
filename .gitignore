@@ -43,3 +43,6 @@ bin/
 
 #general
 *.class
+
+# servers
+tunnels.conf

@@ -14,9 +14,8 @@ lazy val root = (project in file("."))
   .settings(
     name := "mole",
     libraryDependencies += scalaTest % Test,
-    libraryDependencies ++= Seq(
-      "com.jcraft" % "jsch" % "0.1.55"
-    )
+    libraryDependencies += "com.jcraft" % "jsch" % "0.1.55",
+    libraryDependencies += "com.typesafe" % "config" % "1.4.1"
   )
 
 // See https://www.scala-sbt.org/1.x/docs/Using-Sonatype.html for instructions on how to publish to Sonatype.

@@ -1,3 +1,4 @@
+import ConnectionStatus.ConnectionStatusVal
 import com.jcraft.jsch._
 
 import java.awt.{BorderLayout, Component}
@@ -15,6 +16,7 @@ import java.awt.Color
 import javax.swing.BorderFactory
 import java.awt.Color
 import java.lang.Thread.{UncaughtExceptionHandler, sleep}
+import com.typesafe.config.{ConfigFactory, ConfigRenderOptions}
 
 class SshUserInfo(val username: String, val host: String, val port: Int = 22, val password: String) extends UserInfo {
   def getPassphrase: String = ""
@@ -32,11 +34,12 @@ class SshUserInfo(val username: String, val host: String, val port: Int = 22, va
 
 case class TunnelConfig(lport: Int, rhost: String, rport: Int, timeout_seconds: Int = 1)
 
-class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfig: TunnelConfig) extends Thread {
+class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfig: TunnelConfig, val digButton: DigButton, val table: JTable) extends Thread {
   private var _shouldStop = false
+
   def setShouldStop(value: Boolean) = this.synchronized {
     _shouldStop = value
-//    println(f"set: $value")
+    //    println(f"set: $value")
   }
 
   override def run(): Unit = {
@@ -44,13 +47,29 @@ class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfi
     session.setUserInfo(sshUserInfo)
     val assinged_port = session.setPortForwardingL(tunnelConfig.lport, tunnelConfig.rhost, tunnelConfig.rport)
     println(f"Assigning port: {$assinged_port}")
-    session.connect(tunnelConfig.timeout_seconds * 1000)
+    try {
+      session.connect(tunnelConfig.timeout_seconds * 1000)
+      digButton.connectionStatus = ConnectionStatus.CONNECTED
+      digButton.setText("Disconnect")
+    } catch {
+      case e =>
+        digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
+        digButton.setText("Connect")
+    }finally {
+      digButton.setEnabled(true)
+      table.repaint()
+    }
     println(f"Assigned port: {$assinged_port}")
     while (!_shouldStop) {
-//      println("don't stop!")
+      //      println("don't stop!")
       sleep(1000)
     }
+
     session.disconnect()
+    digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
+    digButton.setText("Connect")
+    digButton.setEnabled(true)
+    table.repaint()
   }
 }
 
@@ -61,12 +80,17 @@ class DigTunnel extends ActionListener {
 }
 
 class DigButton(val lport: Int, val rhost: String, val rport: Int) extends JButton("CONNECT") {
-  var connectionStatus = ConnectionStatus.NOT_CONNECTED
+  private var _connectionStatus = ConnectionStatus.NOT_CONNECTED
+  def connectionStatus = _connectionStatus
+  def connectionStatus_=(value: ConnectionStatus.ConnectionStatusVal) = this.synchronized {
+    _connectionStatus = value
+  }
+
   var tunnelThread: Option[TunnelThread] = None
 }
 
 object ConnectionStatus extends Enumeration {
-  protected case class ConnectionStatusVal(statusString: String, color: Option[Color]) extends super.Val
+  case class ConnectionStatusVal(statusString: String, color: Option[Color]) extends super.Val
 
   import scala.language.implicitConversions
 
@@ -76,9 +100,29 @@ object ConnectionStatus extends Enumeration {
   val CONNECTED = ConnectionStatusVal("Connected", Some(Color.GREEN))
   val CONNECTION_FAILED = ConnectionStatusVal("Connection Failed", Some(Color.RED))
   val CONNECTING = ConnectionStatusVal("Connecting", Some(Color.YELLOW))
+  val DISCONNECTING = ConnectionStatusVal("Disconnecting", Some(Color.YELLOW))
+}
+
+object MoleConfig {
+  case class TunnelConfig(name: String, sshHost: String, lport: Int, rhost: String, rport: Int)
+
+  private val moleConfig = ConfigFactory.load().getConfig("com.diphuaji.mole")
+  val tunnels: Seq[TunnelConfig] = moleConfig.getConfigList("tunnels").asScala.toSeq.map { tunnel =>
+    TunnelConfig(
+      tunnel.getString("name"),
+      tunnel.getString("ssh_host"),
+      tunnel.getInt("lport"),
+      tunnel.getString("rhost"),
+      tunnel.getInt("rport"),
+    )
+  }
+
+  def printConfig: Unit = println(moleConfig.root().render(ConfigRenderOptions.defaults().setOriginComments(false)))
 }
 
 object Main extends App {
+  //  MoleConfig.printConfig
+  //  System.exit(0)
   val jsch = new JSch
   val STATUS_COL = 4
   val ACTION_COL = 5
@@ -97,10 +141,9 @@ object Main extends App {
   tableModel.addColumn("status")
   tableModel.addColumn("action")
 
-  val rows = Seq(
-    Seq(3325, "localhost", 25, "localhost"),
-    Seq(3322, "localhost", 22, "localhost")
-  )
+  val rows = MoleConfig.tunnels.map { tunnel =>
+    Seq(tunnel.lport, tunnel.rhost, tunnel.rport, tunnel.sshHost)
+  }
 
   val actionButtons = rows.zipWithIndex.map({
     case (row, index) =>
@@ -112,21 +155,23 @@ object Main extends App {
 
           button.connectionStatus match {
             case ConnectionStatus.NOT_CONNECTED =>
-              val thread = new TunnelThread(jsch, sshUserInfo, tunnelConfig)
+              val thread = new TunnelThread(jsch, sshUserInfo, tunnelConfig, button, table)
               button.tunnelThread = Some(thread)
               thread.setUncaughtExceptionHandler(new UncaughtExceptionHandler {
                 def uncaughtException(var1: Thread, var2: Throwable) = {
-//                  println("something wrong!")
+                  //                  println("something wrong!")
                   button.setText("CONNECT")
                 }
               })
               thread.start()
-              button.connectionStatus = ConnectionStatus.CONNECTED
-              button.setText("DISCONNECT")
+              button.connectionStatus = ConnectionStatus.CONNECTING
+              button.setEnabled(false)
+              button.setText("CONNECTING")
             case ConnectionStatus.CONNECTED =>
-              button.tunnelThread.foreach(thread=>thread.setShouldStop(true))
-              button.setText("CONNECT")
-              button.connectionStatus = ConnectionStatus.NOT_CONNECTED
+              button.tunnelThread.foreach(thread => thread.setShouldStop(true))
+              button.setEnabled(false)
+              button.setText("DISCONNECTING")
+              button.connectionStatus = ConnectionStatus.DISCONNECTING
           }
           table.repaint()
         }
@@ -138,7 +183,7 @@ object Main extends App {
   val table = new JTable(tableModel)
 
   val actionColumn = table.getColumnModel.getColumn(ACTION_COL)
-
+  actionColumn.setPreferredWidth(100)
   actionColumn.setCellRenderer(new DefaultTableCellRenderer {
     override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = {
       actionButtons(row)
@@ -159,7 +204,7 @@ object Main extends App {
   statusColumn.setCellRenderer(new DefaultTableCellRenderer {
     override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = {
       actionButtons(row).connectionStatus.color.map(color => {
-//        println(color)
+        //        println(color)
         val l = new JLabel()
         l.setOpaque(true)
         l.setBackground(color)
