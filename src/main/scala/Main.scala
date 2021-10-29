@@ -44,10 +44,10 @@ class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfi
   }
 
   override def run(): Unit = {
-    println("private key: " + sshUserInfo.pathToPrivateKey)
-    jsch.addIdentity(sshUserInfo.pathToPrivateKey)
-    println("private key set")
     try {
+      println("private key: " + sshUserInfo.pathToPrivateKey)
+      jsch.addIdentity(sshUserInfo.pathToPrivateKey)
+      println("private key set")
       val session = jsch.getSession(sshUserInfo.username, sshUserInfo.host, sshUserInfo.port)
       println("session created")
       session.setUserInfo(sshUserInfo)
@@ -70,7 +70,7 @@ class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfi
       session.disconnect()
       digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
     } catch {
-      case e =>
+      case e:Throwable =>
         println(f"soemthing wrong:${e.getMessage}")
         JOptionPane.showMessageDialog(digButton, f"Connection error:\n${e.getMessage}")
         digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
