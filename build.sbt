@@ -14,7 +14,7 @@ lazy val root = (project in file("."))
   .settings(
     name := "mole",
     libraryDependencies += scalaTest % Test,
-    libraryDependencies += "com.jcraft" % "jsch" % "0.1.55",
+    libraryDependencies += "com.github.mwiede" % "jsch" % "0.1.69",
     libraryDependencies += "com.typesafe" % "config" % "1.4.1"
   )
 
