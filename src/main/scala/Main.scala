@@ -10,6 +10,8 @@ import java.awt.event.{ActionEvent, ActionListener, MouseEvent}
 import java.awt.Color
 import java.lang.Thread.{UncaughtExceptionHandler, sleep}
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
+import org.apache.logging.log4j.scala.Logging
+import org.apache.logging.log4j.Level
 
 
 class SshUserInfo(val username: String, val host: String, val port: Int = 22, val password: String) extends UserInfo {
@@ -131,7 +133,7 @@ object MoleConfig {
   def apply(file: File) = new MoleConfig(ConfigFactory.parseFile(file))
 }
 
-object Main extends App {
+object Main extends App with Logging {
   //  MoleConfig.printConfig
   //  System.exit(0)
   val jsch = new JSch
@@ -237,6 +239,7 @@ object Main extends App {
           val file = fc.getSelectedFile
           val moleConfig = MoleConfig.apply(file)
           setupUI(moleConfig.tunnels)
+          logger.info(s"Config file loaded: ${file.getAbsolutePath}.")
           openFileButton.setEnabled(false)
         }
       } catch {
@@ -250,6 +253,9 @@ object Main extends App {
   contentPane.add(footer, BorderLayout.PAGE_END)
 
   scrollPane.add(new JLabel("xxx"))
+
+
+  logger.info(s"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
 
   //Display the window.
   frame.pack()
