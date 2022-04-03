@@ -1,17 +1,20 @@
-import MoleConfig.TunnelConfig
-import com.jcraft.jsch._
+package com.diphuaji.mole
 
-import java.awt.{BorderLayout, Component}
-import java.io.{IOException, File}
+import com.diphuaji.mole.MoleConfig.TunnelConfig
+import com.jcraft.jsch._
+import java.awt._
 import javax.swing._
-import javax.swing.table.{DefaultTableCellRenderer, DefaultTableModel, TableCellEditor, TableCellRenderer}
-import scala.jdk.CollectionConverters._
-import java.awt.event.{ActionEvent, ActionListener, MouseEvent}
-import java.awt.Color
-import java.lang.Thread.{UncaughtExceptionHandler, sleep}
+
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import org.apache.logging.log4j.scala.Logging
-import org.apache.logging.log4j.Level
+
+import java.awt.event.{ActionEvent, ActionListener}
+import java.awt.{BorderLayout, Color}
+import java.io.File
+import java.lang.Thread.{UncaughtExceptionHandler, sleep}
+import javax.swing._
+import javax.swing.table.{DefaultTableCellRenderer, DefaultTableModel, TableCellEditor}
+import scala.jdk.CollectionConverters._
 
 
 class SshUserInfo(val username: String, val host: String, val port: Int = 22, val password: String) extends UserInfo {
@@ -21,42 +24,44 @@ class SshUserInfo(val username: String, val host: String, val port: Int = 22, va
     f"${System.getProperty("user.home")}$sep.ssh${sep}id_rsa"
   }
 
-  def getPassphrase: String = ""
+  def getPassphrase = ""
 
-  def getPassword: String = ""
+  def getPassword = ""
 
-  def promptPassword(message: String): Boolean = true
+  def promptPassword(message: String) = true
 
-  def promptPassphrase(message: String): Boolean = true
+  def promptPassphrase(message: String) = true
 
-  def promptYesNo(message: String): Boolean = true
+  def promptYesNo(message: String) = true
 
   def showMessage(message: String): Unit = {}
 
 }
 
 
-class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfig: TunnelConfig, val digButton: DigButton, val table: JTable) extends Thread {
+class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfig: TunnelConfig, val digButton: DigButton, val table: JTable) extends Thread with Logging {
   private val timeoutSeconds = 3
   private var _shouldStop = false
 
   def setShouldStop(value: Boolean) = this.synchronized {
     _shouldStop = value
-    //    println(f"set: $value")
+    //    logger.info(f"set: $value")
   }
 
   override def run(): Unit = {
+    val session = jsch.getSession(sshUserInfo.username, sshUserInfo.host, sshUserInfo.port)
     try {
-      println("private key: " + sshUserInfo.pathToPrivateKey)
+      logger.info("private key: " + sshUserInfo.pathToPrivateKey)
       jsch.addIdentity(sshUserInfo.pathToPrivateKey)
-      println("private key set")
-      val session = jsch.getSession(sshUserInfo.username, sshUserInfo.host, sshUserInfo.port)
-      println("session created")
+      logger.info("private key set")
+      logger.info("session created")
+      session.setTimeout(3*1000)
       session.setUserInfo(sshUserInfo)
-      println(f"Assigning port: {${tunnelConfig.lport}}")
+      session.setConfig("StrictHostKeyChecking", "no")
+      logger.info(f"Assigning port: {${tunnelConfig.lport}}")
       val assinged_port = session.setPortForwardingL(tunnelConfig.lport, tunnelConfig.rhost, tunnelConfig.rport)
 
-      println(f"Assigned port: {$assinged_port}")
+      logger.info(f"Assigned port: {$assinged_port}")
 
       session.connect(timeoutSeconds * 1000)
       digButton.connectionStatus = ConnectionStatus.CONNECTED
@@ -65,7 +70,7 @@ class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfi
       table.repaint()
 
       while (!_shouldStop) {
-        //      println("don't stop!")
+        //      logger.info("don't stop!")
         sleep(1000)
       }
 
@@ -73,13 +78,17 @@ class TunnelThread(val jsch: JSch, val sshUserInfo: SshUserInfo, val tunnelConfi
       digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
     } catch {
       case e:Throwable =>
-        println(f"soemthing wrong:${e.getMessage}")
+        logger.error("Opps, something wrong. Stack trace:", e)
+
         JOptionPane.showMessageDialog(digButton, f"Connection error:\n${e.getMessage}")
         digButton.connectionStatus = ConnectionStatus.NOT_CONNECTED
     } finally {
-      println(f"finally block")
+      logger.info(f"finally block")
       digButton.setEnabled(true)
       digButton.setText("Connect")
+      session.disconnect()
+      
+
       table.repaint()
     }
   }
@@ -111,7 +120,7 @@ object ConnectionStatus extends Enumeration {
   val DISCONNECTING = ConnectionStatusVal("Disconnecting", Some(Color.YELLOW))
 }
 
-class MoleConfig(val config: Config) {
+class MoleConfig(val config: Config) extends Logging {
   private val moleConfig = config.getConfig("com.diphuaji.mole")
   val tunnels: Seq[TunnelConfig] = moleConfig.getConfigList("tunnels").asScala.toSeq.map { tunnel =>
     TunnelConfig(
@@ -123,7 +132,7 @@ class MoleConfig(val config: Config) {
     )
   }
 
-  def printConfig: Unit = println(moleConfig.root().render(ConfigRenderOptions.defaults().setOriginComments(false)))
+  def printConfig: Unit = logger.info(moleConfig.root().render(ConfigRenderOptions.defaults().setOriginComments(false)))
 
 }
 
@@ -133,15 +142,49 @@ object MoleConfig {
   def apply(file: File) = new MoleConfig(ConfigFactory.parseFile(file))
 }
 
+
+
+class MyLogger extends com.jcraft.jsch.Logger with Logging {
+
+
+  override def isEnabled(level: Int) = true
+
+  override def log(level: Int, message: String): Unit = {
+    logger.info(s"${MyLogger.name.get(level)}${message}")
+  }
+}
+
+object MyLogger {
+  com.jcraft.jsch.Logger.INFO
+  val name = new java.util.Hashtable[Int, String]
+
+  try{
+    name.put(0, "DEBUG: ")
+    name.put(1, "INFO: ")
+    name.put(2, "WARN: ")
+    name.put(3, "ERROR: ")
+    name.put(4, "FATAL: ")
+  }
+
+  def apply() = new MyLogger()
+
+}
+
 object Main extends App with Logging {
+
+
+
   //  MoleConfig.printConfig
   //  System.exit(0)
+  JSch.setLogger(MyLogger())
   val jsch = new JSch
+  val sshConfig = OpenSSHConfig.parseFile("~/.ssh/config")
+  jsch.setConfigRepository(sshConfig)
   val STATUS_COL = 4
   val ACTION_COL = 5
 
   //Create and set up the window.
-  val frame: JFrame = new JFrame("Mole")
+  val frame = new JFrame("Mole")
   //  frame.setLayout()
   frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE)
 
@@ -171,7 +214,7 @@ object Main extends App with Logging {
               button.tunnelThread = Some(thread)
               thread.setUncaughtExceptionHandler(new UncaughtExceptionHandler {
                 def uncaughtException(var1: Thread, var2: Throwable) = {
-                  //                  println("something wrong!")
+                  //                  logger.info("something wrong!")
                   button.setText("Connect")
                 }
               })
@@ -194,37 +237,29 @@ object Main extends App with Logging {
     val actionColumn = table.getColumnModel.getColumn(ACTION_COL)
     actionColumn.setPreferredWidth(100)
     actionColumn.setCellRenderer(new DefaultTableCellRenderer {
-      override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = {
-        actionButtons(row)
-      }
+      override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = actionButtons(row)
     })
 
     actionColumn.setCellEditor(new AbstractCellEditor with TableCellEditor {
-      def getTableCellEditorComponent(table: JTable, value: Any, isSelected: Boolean, row: Int, column: Int) = {
-        actionButtons(row)
-      }
+      def getTableCellEditorComponent(table: JTable, value: Any, isSelected: Boolean, row: Int, column: Int) = actionButtons(row)
 
-      def getCellEditorValue = {
-        1
-      }
+      def getCellEditorValue = 1
     })
 
     val statusColumn = table.getColumnModel.getColumn(STATUS_COL)
     statusColumn.setCellRenderer(new DefaultTableCellRenderer {
-      override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = {
-        actionButtons(row).connectionStatus.color.map(color => {
-          //        println(color)
-          val l = new JLabel()
-          l.setOpaque(true)
-          l.setBackground(color)
-          l.setForeground(Color.cyan)
-          l
-        }).getOrElse(new JLabel())
-      }
+      override def getTableCellRendererComponent(table: JTable, value: Any, isSelected: Boolean, hasFocus: Boolean, row: Int, column: Int) = actionButtons(row).connectionStatus.color.map(color => {
+        //        logger.info(color)
+        val l = new JLabel()
+        l.setOpaque(true)
+        l.setBackground(color)
+        l.setForeground(Color.cyan)
+        l
+      }).getOrElse(new JLabel())
     })
   }
 
-  val footer: JLabel = new JLabel("From Diphuaji with Love")
+  val footer = new JLabel("From Diphuaji with Love")
   val scrollPane = new JScrollPane(table)
   table.setFillsViewportHeight(true)
   val contentPane = frame.getContentPane
@@ -253,9 +288,9 @@ object Main extends App with Logging {
   contentPane.add(footer, BorderLayout.PAGE_END)
 
   scrollPane.add(new JLabel("xxx"))
-
-
-  logger.info(s"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+  System.getProperties.entrySet.asScala.foreach(entry=>{
+    logger.info(s"${entry.getKey}: ${entry.getValue}")
+  })
 
   //Display the window.
   frame.pack()
