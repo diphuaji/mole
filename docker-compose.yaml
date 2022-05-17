@@ -1,0 +1,33 @@
+services:
+  ssh1-a:
+    hostname: ssh1-a
+    image: panubo/sshd:master-ab7daa4-202205150030
+    ports:
+      - "2222:22"
+    networks:
+      - network1
+      - bridge
+    labels:
+      - "jumper"
+    environment:
+      - TCP_FORWARDING=true
+      - SSH_ENABLE_ROOT=true
+      - SSH_ENABLE_ROOT_PASSWORD_AUTH=true
+    volumes:
+      - ./docker/entrypoint.d/:/etc/entrypoint.d/
+      - ./docker/keys/:/etc/keys/
+  ssh1-b:
+    hostname: ssh1-a
+    image: panubo/sshd:master-ab7daa4-202205150030
+    networks:
+      - network1
+    environment:
+      - SSH_ENABLE_ROOT=true
+    volumes:
+      - ./docker/entrypoint.d/:/etc/entrypoint.d/
+      - ./docker/keys/:/etc/keys/
+
+networks:
+  bridge: {}
+  network1:
+    internal: true
