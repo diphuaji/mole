@@ -17,12 +17,13 @@ services:
       - ./docker/entrypoint.d/:/etc/entrypoint.d/
       - ./docker/keys/:/etc/keys/
   ssh1-b:
-    hostname: ssh1-a
+    hostname: ssh1-b
     image: panubo/sshd:master-ab7daa4-202205150030
     networks:
       - network1
     environment:
       - SSH_ENABLE_ROOT=true
+      - SSH_ENABLE_ROOT_PASSWORD_AUTH=true
     volumes:
       - ./docker/entrypoint.d/:/etc/entrypoint.d/
       - ./docker/keys/:/etc/keys/
